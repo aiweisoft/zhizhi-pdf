@@ -8,8 +8,8 @@ import * as pdfjsLib from '../vendor/pdfjs/pdf.min.mjs';
    全部在浏览器完成，不上传任何文件。
    ========================================================================== */
 
-const BASE = new URL('./', location.href).href;
-const VENDOR = new URL('../vendor/', BASE).href;
+// 路径一律相对本模块解析：无论站点挂在 / 还是 /pdf/ 下都能定位到 vendor
+const VENDOR = new URL('../vendor/', import.meta.url).href;
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = VENDOR + 'pdfjs/pdf.worker.min.mjs';
 
