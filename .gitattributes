@@ -1,7 +1,7 @@
-﻿# 源码统一 LF
+# 源码统一 LF
 * text=auto
 
-# vendor 是第三方产物，一律按二进制处理，杜绝检出时被改坏
+# vendor 是第三方产物，按二进制处理，杜绝检出时被改坏
 vendor/** -text
 
 *.gz    binary
