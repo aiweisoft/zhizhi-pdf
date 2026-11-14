@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>截图用演示页</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #F6F9FC; }
+  iframe { width: 100%; height: 1500px; border: 0; display: block; }
+</style>
+</head>
+<body>
+<iframe id="frame" src="../index.html?debug=1"></iframe>
+<script src="../vendor/pdf-lib.min.js"></script>
+<script>
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function makePdf(pages, label, color) {
+  const { PDFDocument, StandardFonts, rgb } = window.PDFLib;
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.HelveticaBold);
+  for (let i = 1; i <= pages; i++) {
+    const p = doc.addPage([595.28, 841.89]);
+    p.drawRectangle({ x: 0, y: 720, width: 595, height: 122, color: rgb(color[0], color[1], color[2]) });
+    p.drawText(`${label} ${i}`, { x: 48, y: 770, size: 30, font, color: rgb(1, 1, 1) });
+    for (let l = 0; l < 12; l++) {
+      p.drawRectangle({ x: 48, y: 660 - l * 34, width: 420 - (l % 4) * 60, height: 10, color: rgb(0.9, 0.92, 0.95) });
+    }
+    p.drawText('Sample document for layout preview', { x: 48, y: 60, size: 10, font, color: rgb(0.6, 0.65, 0.7) });
+  }
+  return doc.save();
+}
+
+(async function () {
+  const frame = document.getElementById('frame');
+  let w = frame.contentWindow;
+  for (let i = 0; i < 100; i++) {
+    if (w && w.__pfd) break;
+    await sleep(100);
+  }
+  const a = await makePdf(3, 'Contract', [0.09, 0.38, 0.56]);
+  const b = await makePdf(2, 'Invoice', [0.21, 0.63, 0.83]);
+  await w.__pfd.addFiles([
+    new File([a], '合同附件.pdf', { type: 'application/pdf' }),
+    new File([b], '发票扫描.pdf', { type: 'application/pdf' })
+  ]);
+  await sleep(1200);
+  // 选中第 2、3 页，展示选中态
+  const cards = frame.contentDocument.querySelectorAll('.page');
+  if (cards[1]) cards[1].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  if (cards[2]) cards[2].dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+
+  // ?tab=split / ?tab=ocr 切到对应面板
+  const m = location.search.match(/tab=(split|ocr)/);
+  if (m) {
+    const panelId = m[1] === 'split' ? 'p-split' : 'p-ocr';
+    const tab = frame.contentDocument.querySelector(`.tab[data-panel="${panelId}"]`);
+    if (tab) tab.click();
+  }
+  document.title = 'DEMO READY';
+})();
+</script>
+</body>
+</html>

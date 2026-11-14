@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>pdf.js 检查</title>
+<style>body{font:13px/1.6 Consolas,monospace;background:#0f1d2e;color:#d7e3f0;padding:16px;white-space:pre-wrap}</style>
+</head>
+<body>
+<div id="out">start…</div>
+<script src="../vendor/pdf-lib.min.js"></script>
+<script type="module">
+const out = document.getElementById('out');
+const log = (s) => { out.textContent += '\n' + s; };
+let step = 'boot';
+const watchdog = setTimeout(() => log('TIMEOUT at step: ' + step), 12000);
+
+window.addEventListener('error', (e) => log('window.error: ' + e.message));
+window.addEventListener('unhandledrejection', (e) => log('unhandled: ' + (e.reason && e.reason.message || e.reason)));
+
+try {
+  step = 'make pdf';
+  const { PDFDocument, StandardFonts } = window.PDFLib;
+  const d = await PDFDocument.create();
+  const f = await d.embedFont(StandardFonts.Helvetica);
+  const p = d.addPage([595.28, 841.89]);
+  p.drawText('hello pdf.js', { x: 60, y: 700, size: 24, font: f });
+  const bytes = await d.save();
+  log('pdf bytes: ' + bytes.length);
+
+  step = 'import pdfjs';
+  const pdfjs = await import('../vendor/pdfjs/pdf.min.mjs');
+  log('pdfjs version: ' + (pdfjs.version || '?'));
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL('../vendor/pdfjs/pdf.worker.min.mjs', location.href).href;
+  log('workerSrc: ' + pdfjs.GlobalWorkerOptions.workerSrc);
+
+  step = 'getDocument';
+  const task = pdfjs.getDocument({
+    data: bytes.slice(0),
+    cMapUrl: new URL('../vendor/pdfjs/cmaps/', location.href).href,
+    cMapPacked: true,
+    standardFontDataUrl: new URL('../vendor/pdfjs/standard_fonts/', location.href).href
+  });
+  const doc = await task.promise;
+  log('numPages: ' + doc.numPages);
+
+  step = 'render';
+  const page = await doc.getPage(1);
+  const vp = page.getViewport({ scale: 1 });
+  const c = document.createElement('canvas');
+  c.width = Math.ceil(vp.width); c.height = Math.ceil(vp.height);
+  await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+  log('rendered ' + c.width + 'x' + c.height);
+
+  log('ALL OK');
+  document.title = 'PDFJS OK';
+} catch (e) {
+  log('ERROR at step ' + step + ': ' + (e && (e.stack || e.message) || e));
+  document.title = 'PDFJS FAIL';
+} finally {
+  clearTimeout(watchdog);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>PDF 工具自测</title>
+<style>
+  body { font: 14px/1.6 Consolas, monospace; padding: 16px; background: #0f1d2e; color: #d7e3f0; }
+  #out { white-space: pre-wrap; }
+  .ok { color: #6ee7b7; }
+  .bad { color: #fca5a5; }
+  iframe { position: absolute; left: -3000px; width: 1200px; height: 1400px; border: 0; }
+</style>
+</head>
+<body>
+<div id="out">running…</div>
+<iframe id="frame" src="../index.html?debug=1" title="app under test"></iframe>
+<script src="../vendor/pdf-lib.min.js"></script>
+<script>
+const out = document.getElementById('out');
+const lines = [];
+let pass = 0, fail = 0;
+
+function log(ok, name, detail) {
+  if (ok) pass++; else fail++;
+  const cls = ok ? 'ok' : 'bad';
+  lines.push(`<span class="${cls}">${ok ? 'PASS' : 'FAIL'}</span>  ${name}${detail ? '  → ' + detail : ''}`);
+  out.innerHTML = lines.join('\n');
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function makePdf(pageCount, label) {
+  const { PDFDocument, StandardFonts, rgb } = window.PDFLib;
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let i = 1; i <= pageCount; i++) {
+    const page = doc.addPage([595.28, 841.89]);
+    page.drawText(`${label} page ${i}`, { x: 60, y: 760, size: 26, font, color: rgb(0.1, 0.35, 0.6) });
+    page.drawText('The quick brown fox 0123456789', { x: 60, y: 720, size: 14, font, color: rgb(0.2, 0.2, 0.2) });
+  }
+  return doc.save();
+}
+
+(async function run() {
+  const frame = document.getElementById('frame');
+
+  // 等 iframe + 模块就绪
+  let w = null;
+  for (let i = 0; i < 120; i++) {
+    w = frame.contentWindow;
+    if (w && w.__pfd && frame.contentDocument.readyState === 'complete') break;
+    await sleep(100);
+  }
+  if (!w || !w.__pfd) {
+    log(false, 'app 模块加载');
+    finish();
+    return;
+  }
+  log(true, 'app 模块加载');
+
+  // 1. 两个测试 PDF
+  const b1 = await makePdf(3, 'A');
+  const b2 = await makePdf(2, 'B');
+  log(b1.length > 500 && String.fromCharCode(...b1.slice(0, 4)) === '%PDF', 'pdf-lib 生成测试文件', `${b1.length}B / ${b2.length}B`);
+
+  // 2. 载入
+  const f1 = new File([b1], 'A-三页.pdf', { type: 'application/pdf' });
+  const f2 = new File([b2], 'B-两页.pdf', { type: 'application/pdf' });
+  await w.__pfd.addFiles([f1, f2]);
+  await sleep(300);
+
+  const total = w.__pfd.pages.length;
+  log(total === 5, '载入两个文件共 5 页', `实际 ${total}`);
+
+  const cards = frame.contentDocument.querySelectorAll('.page').length;
+  log(cards === 5, '页面网格渲染 5 张卡片', `实际 ${cards}`);
+
+  const info = frame.contentDocument.getElementById('toolbarInfo').textContent;
+  log(/2\s*个文件/.test(info) && /5\s*页/.test(info), '工具栏统计', info.trim());
+
+  const toolbarVisible = !frame.contentDocument.getElementById('toolbar').hidden;
+  log(toolbarVisible, '工具栏显示');
+
+  // 3. 导出一个 PDF
+  const merged = await w.__pfd.buildPdf(w.__pfd.pages);
+  const head = String.fromCharCode(...merged.slice(0, 4));
+  log(head === '%PDF', '合并导出的文件头是 %PDF', head);
+
+  const reloaded = await window.PDFLib.PDFDocument.load(new Uint8Array(merged));
+  log(reloaded.getPageCount() === 5, '合并结果页数为 5', `实际 ${reloaded.getPageCount()}`);
+
+  // 4. 旋转
+  const doc0 = frame.contentDocument;
+  doc0.getElementById('btnSelectAll').click();
+  await sleep(80);
+  const selText = doc0.getElementById('toolbarInfo').textContent;
+  log(/选中\s*5\s*页/.test(selText), '全选生效', selText.trim());
+
+  doc0.getElementById('btnRotate').click();
+  await sleep(250);
+  const flags = doc0.querySelectorAll('.page-flag');
+  log(flags.length === 5 && flags[0].textContent === '90°', '旋转 90° 标记', `${flags.length} 个标记`);
+
+  const rotated = await window.PDFLib.PDFDocument.load(new Uint8Array(await w.__pfd.buildPdf(w.__pfd.pages)));
+  const angle = rotated.getPage(0).getRotation().angle;
+  log(angle === 90, '旋转写入了 PDF（/Rotate=90）', `angle=${angle}`);
+
+  // 5. 删除
+  // Ctrl+点击 = 多选（普通点击是单选，符合文件管理器习惯）
+  doc0.querySelectorAll('.page')[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  doc0.querySelectorAll('.page')[1].dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+  await sleep(80);
+  const selBeforeDelete = doc0.getElementById('toolbarInfo').textContent;
+  log(/选中\s*2\s*页/.test(selBeforeDelete), 'Ctrl+点击多选 2 页', selBeforeDelete.trim());
+  doc0.getElementById('btnDelete').click();
+  await sleep(250);
+  log(w.__pfd.pages.length === 3, '删除 2 页后剩 3 页', `实际 ${w.__pfd.pages.length}`);
+  log(doc0.querySelectorAll('.page').length === 3, '删除后网格同步', `实际 ${doc0.querySelectorAll('.page').length}`);
+
+  // 6. 范围解析
+  const r1 = JSON.stringify(w.__pfd.parseRanges('1-3,5', 5));
+  log(r1 === '[[0,1,2],[4]]', '范围解析 1-3,5', r1);
+  const r2 = JSON.stringify(w.__pfd.parseRanges('9-2', 5));
+  log(r2 === '[[1,2,3,4]]', '范围解析反向 9-2 自动纠正', r2);
+  const r3 = JSON.stringify(w.__pfd.parseRanges('abc,0,99', 5));
+  log(r3 === '[]', '范围解析非法输入返回空', r3);
+
+  // 7. JSZip 可用
+  if (!window.JSZip) {
+    await new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = '../vendor/jszip.min.js';
+      s.onload = res; s.onerror = rej;
+      document.head.appendChild(s);
+    });
+  }
+  const zip = new window.JSZip();
+  zip.file('a.pdf', b1);
+  zip.file('b.pdf', b2);
+  const zblob = await zip.generateAsync({ type: 'blob' });
+  log(zblob.size > b1.length, 'JSZip 打包可用', `${zblob.size}B`);
+
+  // 8. 拆分逻辑（按范围分组）
+  const groups = w.__pfd.parseRanges('1-2,3', 5);
+  log(groups.length === 2 && groups[0].length === 2, '拆分分组数量正确', JSON.stringify(groups));
+
+  finish();
+})().catch((e) => {
+  log(false, '未捕获异常', (e && e.message) || String(e));
+  finish();
+});
+
+function finish() {
+  lines.push(`\nTESTS ${pass} passed, ${fail} failed`);
+  out.innerHTML = lines.join('\n');
+  document.title = `RESULT ${pass}/${pass + fail}`;
+  try {
+    fetch('http://127.0.0.1:8899/result', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ pass, fail, lines: lines.map((l) => l.replace(/<[^>]+>/g, '')) })
+    });
+  } catch (e) { /* 没有报告服务时忽略 */ }
+}
+</script>
+</body>
+</html>

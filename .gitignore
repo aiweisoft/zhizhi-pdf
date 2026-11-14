@@ -1,0 +1,18 @@
+# 依赖
+tools/shot/node_modules/
+tools/shot/package-lock.json
+
+# 测试产物
+tests/last-result.json
+tests/*.png
+
+# 截图 / 临时
+*.png
+!vendor/**
+!img/**
+!tests/**
+!.github/**
+
+# 系统
+Thumbs.db
+.DS_Store

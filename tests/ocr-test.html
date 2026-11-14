@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>OCR 链路自测</title>
+<style>body{font:13px/1.6 Consolas,monospace;background:#0f1d2e;color:#d7e3f0;padding:16px;white-space:pre-wrap}iframe{position:absolute;left:-4000px;width:1200px;height:1400px;border:0}</style>
+</head>
+<body>
+<div id="out">running…</div>
+<iframe id="frame" src="../index.html?debug=1" title="app under test"></iframe>
+<script src="../vendor/pdf-lib.min.js"></script>
+<script>
+const out = document.getElementById('out');
+const lines = [];
+let pass = 0, fail = 0;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function log(ok, name, detail) {
+  if (ok) pass++; else fail++;
+  lines.push(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  → ' + detail : ''}`);
+  out.textContent = lines.join('\n');
+}
+
+function finish() {
+  lines.push(`\nTESTS ${pass} passed, ${fail} failed`);
+  out.textContent = lines.join('\n');
+  document.title = `RESULT ${pass}/${pass + fail}`;
+  try {
+    fetch('http://127.0.0.1:8899/result', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ pass, fail, lines })
+    });
+  } catch {}
+}
+
+// 造一张"扫描件"：白底 + 大号中文，转 PNG 塞进 PDF
+async function makeScannedPdf() {
+  const W = 1240, H = 1754;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#111';
+  ctx.font = 'bold 76px "Microsoft YaHei", sans-serif';
+  ctx.fillText('知智 PDF 工具', 90, 220);
+  ctx.font = '54px "Microsoft YaHei", sans-serif';
+  ctx.fillText('扫描件文字识别测试', 90, 340);
+  ctx.fillText('发票金额 1280 元', 90, 440);
+  ctx.fillText('第二行内容：合并、拆分、旋转', 90, 530);
+
+  const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+  const png = new Uint8Array(await blob.arrayBuffer());
+
+  const { PDFDocument } = window.PDFLib;
+  const doc = await PDFDocument.create();
+  const img = await doc.embedPng(png);
+  const page = doc.addPage([595.28, 841.89]);
+  page.drawImage(img, { x: 0, y: 0, width: 595.28, height: 841.89 });
+  return doc.save();
+}
+
+(async function run() {
+  const frame = document.getElementById('frame');
+  let w = null;
+  for (let i = 0; i < 120; i++) {
+    w = frame.contentWindow;
+    if (w && w.__pfd && frame.contentDocument.readyState === 'complete') break;
+    await sleep(100);
+  }
+  if (!w || !w.__pfd) { log(false, 'app 模块加载'); finish(); return; }
+  log(true, 'app 模块加载');
+
+  const bytes = await makeScannedPdf();
+  log(bytes.length > 5000, '生成扫描件测试 PDF', `${bytes.length}B`);
+
+  const file = new File([bytes], '扫描件.pdf', { type: 'application/pdf' });
+  await w.__pfd.addFiles([file]);
+  await sleep(400);
+  log(w.__pfd.pages.length === 1, '载入 1 页', `实际 ${w.__pfd.pages.length}`);
+
+  const doc0 = frame.contentDocument;
+  doc0.getElementById('ocrRange').value = '1';
+  if (location.search.includes('eng=1')) doc0.getElementById('ocrEng').checked = true;
+
+  const t0 = Date.now();
+  doc0.getElementById('btnOcr').click();
+
+  // 等识别结束：结果框出现 或 超时
+  const deadline = Date.now() + 180000;
+  let text = '';
+  while (Date.now() < deadline) {
+    await sleep(1000);
+    const box = doc0.getElementById('ocrResult');
+    const btn = doc0.getElementById('btnOcr');
+    if (!box.hidden) { text = doc0.getElementById('ocrText').value; break; }
+    if (!btn.disabled && Date.now() - t0 > 5000) break; // 已结束但没结果
+  }
+  const cost = ((Date.now() - t0) / 1000).toFixed(1);
+  const status = doc0.getElementById('ocrStatus').textContent;
+
+  log(!!text, '识别产出文本', `${cost}s, ${text.length} 字`);
+  if (text) {
+    const flat = text.replace(/\s/g, '');
+    log(flat.includes('知智'), '识别出「知智」', flat.slice(0, 40));
+    log(/扫描件/.test(flat), '识别出「扫描件」');
+    log(/1280/.test(flat), '识别出数字 1280');
+    log(flat.includes('合并') || flat.includes('拆分'), '识别出「合并/拆分」');
+    log(/---\s*第\s*1\s*页/.test(text), '输出带页分隔');
+  }
+  log(true, '状态文本', status);
+
+  finish();
+})().catch((e) => {
+  log(false, '未捕获异常', (e && e.message) || String(e));
+  finish();
+});
+</script>
+</body>
+</html>
