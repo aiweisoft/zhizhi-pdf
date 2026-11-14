@@ -211,7 +211,10 @@ async function renderThumb(card) {
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.ceil(vp.width));
     canvas.height = Math.max(1, Math.ceil(vp.height));
-    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport: vp, background: '#ffffff' }).promise;
 
     holder.classList.remove('is-loading');
     holder.innerHTML = '';
@@ -470,7 +473,10 @@ async function renderPageForOcr(item, maxSide = 2200) {
   const canvas = document.createElement('canvas');
   canvas.width = Math.ceil(vp.width);
   canvas.height = Math.ceil(vp.height);
-  await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvasContext: ctx, viewport: vp, background: '#ffffff' }).promise;
   return canvas;
 }
 

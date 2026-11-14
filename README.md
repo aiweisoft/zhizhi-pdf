@@ -99,7 +99,11 @@ node shot.js "http://127.0.0.1:8898/" ..\..\shot-empty.png 1440 900
 - 大页数（>100 页）缩略图是懒加载的，滚动很快时会看到一个个加载。
 - 未做：水印 / 页码 / 压缩 / 图片转 PDF / 生成可搜索 PDF。
 
-## 部署（尚未执行）
+## 部署（已上线 2026-11-14）
+
+线上地址：https://www.zhizhiapp.com/pdf/
+
+部署方式：服务器从 https://codeload.github.com/aiweisoft/zhizhi-pdf/zip/refs/heads/main 直接拉 zip（实测 6.3 MB/s，26 MB 用 4 秒），Expand-Archive 解压后只拷 index.html / web.config / ssets/ / endor/，	ests/ 与 	ools/ 不上线。
 
 目标路径：`C:\inetpub\wwwroot\zhizhi\pdf\`，作为静态子目录，不需要建 IIS 应用。
 

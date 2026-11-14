@@ -24,6 +24,8 @@ const CHROME = process.env.CHROME || 'C:\\Users\\Administrator\\AppData\\Local\\
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: parseInt(w, 10), height: parseInt(h, 10), deviceScaleFactor: 1 });
+    // 让 .reveal 这类滚动动画在截图时直接以最终状态呈现
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     page.on('console', (m) => {
       if (m.type() === 'error') console.error('[console.error]', m.text());
     });

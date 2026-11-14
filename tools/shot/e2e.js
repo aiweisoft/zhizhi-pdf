@@ -70,6 +70,23 @@ const log = (ok, name, detail) => {
     const toolbarVisible = await page.$eval('#toolbar', (el) => !el.hidden);
     log(toolbarVisible, '工具栏出现');
 
+    // OCR（验证 wasm + 语言包在 IIS 上可下载）
+    await page.click('.tab[data-panel="p-ocr"]');
+    await page.$eval('#ocrRange', (el) => { el.value = '1'; });
+    await page.click('#ocrEng');            // 测试文档是英文，必须勾上英文模型
+    const t0 = Date.now();
+    await page.click('#btnOcr');
+    let ocrText = '';
+    for (let i = 0; i < 180; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      const done = await page.$eval('#ocrResult', (el) => !el.hidden);
+      if (done) { ocrText = await page.$eval('#ocrText', (el) => el.value); break; }
+    }
+    const cost = ((Date.now() - t0) / 1000).toFixed(1);
+    log(!!ocrText, 'OCR 产出文本', cost + 's, ' + ocrText.length + ' 字');
+    log(/Prod test page/i.test(ocrText), 'OCR 认出英文文本', JSON.stringify(ocrText.slice(0, 60)));
+
+
     // 全选 + 旋转
     await page.click('#btnSelectAll');
     await page.click('#btnRotate');
@@ -84,7 +101,8 @@ const log = (ok, name, detail) => {
     const after = await page.$$eval('.page', (els) => els.length);
     log(after === 2, '删除后剩 2 页', '实际 ' + after);
 
-    // 导出下载
+    // 导出下载（先切回导出面板）
+    await page.click('.tab[data-panel="p-export"]');
     await page.click('#btnExport');
     let pdfFile = null;
     for (let i = 0; i < 60; i++) {
@@ -96,23 +114,16 @@ const log = (ok, name, detail) => {
     if (pdfFile) {
       const buf = fs.readFileSync(pdfFile);
       log(buf.slice(0, 4).toString() === '%PDF', '下载文件是 PDF', buf.length + 'B');
-      const pages = (buf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
+      const b64out = buf.toString('base64');
+      const pages = await page.evaluate(async (b) => {
+        const bin = atob(b);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const doc = await window.PDFLib.PDFDocument.load(bytes);
+        return doc.getPageCount();
+      }, b64out);
       log(pages === 2, '导出文件为 2 页', '实际 ' + pages);
     }
-
-    // OCR（验证 wasm + 语言包在 IIS 上可下载）
-    await page.click('.tab[data-panel="p-ocr"]');
-    const t0 = Date.now();
-    await page.click('#btnOcr');
-    let ocrText = '';
-    for (let i = 0; i < 180; i++) {
-      await new Promise((r) => setTimeout(r, 1000));
-      const done = await page.$eval('#ocrResult', (el) => !el.hidden);
-      if (done) { ocrText = await page.$eval('#ocrText', (el) => el.value); break; }
-    }
-    const cost = ((Date.now() - t0) / 1000).toFixed(1);
-    log(!!ocrText, 'OCR 产出文本', cost + 's, ' + ocrText.length + ' 字');
-    log(/Prod test page/i.test(ocrText), 'OCR 认出英文文本', JSON.stringify(ocrText.slice(0, 60)));
 
     log(errors.length === 0, '无 JS 报错', errors.slice(0, 3).join(' | '));
   } catch (e) {
